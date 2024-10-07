@@ -7,6 +7,9 @@
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
 
+const bit<32> DOS_THRESHOLD = 1000; 
+// Maximum allowed packets from a single IP can be fixed!
+
 #define BLOOM_FILTER_ENTRIES 4096
 #define BLOOM_FILTER_BIT_WIDTH 1
 
@@ -123,6 +126,10 @@ control MyIngress(inout headers hdr,
 
     register<bit<BLOOM_FILTER_BIT_WIDTH>>(BLOOM_FILTER_ENTRIES) bloom_filter_1;
     register<bit<BLOOM_FILTER_BIT_WIDTH>>(BLOOM_FILTER_ENTRIES) bloom_filter_2;
+
+    // Register to track the number of packets per source IP
+    register<bit<32>>(BLOOM_FILTER_ENTRIES) packet_count_register;
+
     bit<32> reg_pos_one; bit<32> reg_pos_two;
     bit<1> reg_val_one; bit<1> reg_val_two;
     bit<1> direction;
@@ -153,6 +160,31 @@ control MyIngress(inout headers hdr,
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+
+    //Dos check actioN!
+    action check_dos(out bit<1> exceed_threshold, ip4Addr_t srcAddr) {
+        bit<32> packet_count;
+        
+        // Compute hash position in the register for the source IP
+        bit<32> reg_pos;
+        hash(reg_pos, HashAlgorithm.crc16, (bit<32>)0, {srcAddr}, (bit<32>)BLOOM_FILTER_ENTRIES);
+        
+        // Read the packet count from the register
+        packet_count_register.read(packet_count, reg_pos);
+        
+        // Increment the packet count
+        packet_count = packet_count + 1;
+        
+        // Write the updated packet count back to the register
+        packet_count_register.write(reg_pos, packet_count);
+        
+        // Drop packet if the threshold is exceeded
+        if (packet_count > DOS_THRESHOLD) {
+            exceed_threshold = 1;
+        } else {
+            exceed_threshold = 0;
+        }
     }
 
     table ipv4_lpm {
@@ -186,34 +218,42 @@ control MyIngress(inout headers hdr,
     }
 
     apply {
-        if (hdr.ipv4.isValid()){
+        bit<1> exceed_threshold;
+
+
+        if (hdr.ipv4.isValid()) {
+            check_dos(exceed_threshold, hdr.ipv4.srcAddr);
+
+            // If DoS threshold is exceeded, drop the packet
+            if (exceed_threshold == 1) {
+                drop();
+            }
             ipv4_lpm.apply();
-            if (hdr.tcp.isValid()){
+            if (hdr.tcp.isValid()) {
                 direction = 0; // default
                 if (check_ports.apply().hit) {
-                    // test and set the bloom filter
                     if (direction == 0) {
                         compute_hashes(hdr.ipv4.srcAddr, hdr.ipv4.dstAddr, hdr.tcp.srcPort, hdr.tcp.dstPort);
-                    }
-                    else {
+                    } else {
                         compute_hashes(hdr.ipv4.dstAddr, hdr.ipv4.srcAddr, hdr.tcp.dstPort, hdr.tcp.srcPort);
                     }
-                    // Packet comes from internal network
-                    if (direction == 0){
-                        // TODO: this packet is part of an outgoing TCP connection.
-                        //   We need to set the bloom filter if this is a SYN packet
-                        //   E.g. bloom_filter_1.write(<index>, <value>);
-                    }
-                    // Packet comes from outside
-                    else if (direction == 1){
-                        // TODO: this packet is part of an incomming TCP connection.
-                        //   We need to check if this packet is allowed to pass by reading the bloom filter
-                        //   E.g. bloom_filter_1.read(<value>, <index>);
+
+                    // Packet comes from external network
+                    if (direction == 1) {
+                        bloom_filter_1.read(reg_val_one, reg_pos_one);
+                        bloom_filter_2.read(reg_val_two, reg_pos_two);
+
+                        // If the entries are not set in the bloom filter, drop the packet
+                        if (reg_val_one != 1 || reg_val_two != 1) {
+                            drop();  // Move the drop call here directly
+                        }
                     }
                 }
             }
         }
     }
+
+
 }
 
 /*************************************************************************
