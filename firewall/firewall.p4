@@ -13,6 +13,8 @@ const bit<32> DOS_THRESHOLD = 1000;
 #define BLOOM_FILTER_ENTRIES 4096
 #define BLOOM_FILTER_BIT_WIDTH 1
 
+
+
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
 *************************************************************************/
@@ -20,6 +22,7 @@ const bit<32> DOS_THRESHOLD = 1000;
 typedef bit<9>  egressSpec_t;
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
+
 
 header ethernet_t {
     macAddr_t dstAddr;
@@ -71,6 +74,7 @@ struct headers {
     ipv4_t       ipv4;
     tcp_t        tcp;
 }
+
 
 /*************************************************************************
 *********************** P A R S E R  ***********************************
@@ -133,6 +137,7 @@ control MyIngress(inout headers hdr,
     bit<32> reg_pos_one; bit<32> reg_pos_two;
     bit<1> reg_val_one; bit<1> reg_val_two;
     bit<1> direction;
+    
 
     action drop() {
         mark_to_drop(standard_metadata);
