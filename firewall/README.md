@@ -1,3 +1,7 @@
+LOG icmp and hping3
+sudo tcpdump -i s1-eth3 icmp or 'tcp[tcpflags] & tcp-syn != 0'
+h1 hping3 --flood -S -p 80  h3
+
 # Implementing A Basic Stateful Firewall
 
 ## Introduction

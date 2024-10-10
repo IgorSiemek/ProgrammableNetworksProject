@@ -7,11 +7,13 @@
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
 
-const bit<32> DOS_THRESHOLD = 1000; 
+const bit<32> DOS_THRESHOLD = 10; 
 // Maximum allowed packets from a single IP can be fixed!
 
 #define BLOOM_FILTER_ENTRIES 4096
 #define BLOOM_FILTER_BIT_WIDTH 1
+
+
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -20,6 +22,7 @@ const bit<32> DOS_THRESHOLD = 1000;
 typedef bit<9>  egressSpec_t;
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
+
 
 header ethernet_t {
     macAddr_t dstAddr;
@@ -71,6 +74,7 @@ struct headers {
     ipv4_t       ipv4;
     tcp_t        tcp;
 }
+
 
 /*************************************************************************
 *********************** P A R S E R  ***********************************
@@ -130,11 +134,20 @@ control MyIngress(inout headers hdr,
     // Register to track the number of packets per source IP
     register<bit<32>>(BLOOM_FILTER_ENTRIES) packet_count_register;
 
+    register<bit<32>>(1) drop_count_register;
+    register<bit<32>>(1) forward_count_register;
+
+
     bit<32> reg_pos_one; bit<32> reg_pos_two;
     bit<1> reg_val_one; bit<1> reg_val_two;
     bit<1> direction;
+    
 
     action drop() {
+        bit<32> drop_count;
+        drop_count_register.read(drop_count, 0);
+        drop_count = drop_count + 1;
+        drop_count_register.write(0, drop_count);
         mark_to_drop(standard_metadata);
     }
 
@@ -156,6 +169,11 @@ control MyIngress(inout headers hdr,
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
+        bit<32> forward_count;
+        forward_count_register.read(forward_count, 0);
+        forward_count = forward_count + 1;
+        forward_count_register.write(0, forward_count);
+
         standard_metadata.egress_spec = port;
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
@@ -224,7 +242,7 @@ control MyIngress(inout headers hdr,
         if (hdr.ipv4.isValid()) {
             check_dos(exceed_threshold, hdr.ipv4.srcAddr);
 
-            // If DoS threshold is exceeded, drop the packet
+            //If DoS threshold is exceeded, drop the packet
             if (exceed_threshold == 1) {
                 drop();
             }
