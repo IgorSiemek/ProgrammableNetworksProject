@@ -7,9 +7,6 @@ In this project, we propose the implementation of a firewall using P4 within an 
 - Learn how to implement SDN-based firewalls.
 - Gain experience with P4 and understand its key features for programming network devices.
 - Develop and enforce customized security policies within a simulated network environment.
--
--
--
 - Implement a P4-based firewall capable of detecting and mitigating DoS attacks.
 - Evaluate the performance and effectiveness of the implemented firewall solution.
 
