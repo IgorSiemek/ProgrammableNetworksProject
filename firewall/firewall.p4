@@ -211,6 +211,16 @@ control MyIngress(inout headers hdr,
         }
     }
 
+    action increment_count() {
+        bit<32> current_count;
+        // Read current count
+        packet_count_register.read(current_count, hdr.ipv4.srcAddr);
+        // Increment
+        current_count = current_count + 1;
+        // Write back
+        packet_count_register.write(hdr.ipv4.srcAddr, current_count);
+    }
+
     table ipv4_lpm {
         key = {
             hdr.ipv4.dstAddr: lpm;
@@ -224,9 +234,22 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
+    table count_packets {
+        key = {
+            hdr.ipv4.srcAddr: exact;
+        }
+        actions = {
+            increment_count;
+            NoAction;
+        }
+        size = 4096;
+        default_action = NoAction();
+    }
+
     action set_direction(bit<1> dir) {
         direction = dir;
     }
+
 
     table check_ports {
         key = {
