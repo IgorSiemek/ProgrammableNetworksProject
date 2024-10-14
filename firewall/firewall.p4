@@ -2,12 +2,13 @@
 #include <core.p4>
 #include <v1model.p4>
 
+
 /* CONSTANTS */
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
 
-const bit<32> DOS_THRESHOLD = 10; 
+const bit<32> DOS_THRESHOLD = 5; 
 // Maximum allowed packets from a single IP can be fixed!
 
 #define BLOOM_FILTER_ENTRIES 4096
@@ -180,6 +181,11 @@ control MyIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
+    //14.10 12:32 usuwanie akcji
+    action reset_packet_count_register(bit<32> index){
+        packet_count_register.write(0, index);
+    }
+
     //Dos check actioN!
     action check_dos(out bit<1> exceed_threshold, ip4Addr_t srcAddr) {
         bit<32> packet_count;
@@ -240,13 +246,14 @@ control MyIngress(inout headers hdr,
 
 
         if (hdr.ipv4.isValid()) {
+            ipv4_lpm.apply();
             check_dos(exceed_threshold, hdr.ipv4.srcAddr);
 
             //If DoS threshold is exceeded, drop the packet
             if (exceed_threshold == 1) {
                 drop();
             }
-            ipv4_lpm.apply();
+            //ipv4_lpm.apply();
             if (hdr.tcp.isValid()) {
                 direction = 0; // default
                 if (check_ports.apply().hit) {
