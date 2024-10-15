@@ -259,6 +259,7 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
+
     action set_direction(bit<1> dir) {
         direction = dir;
     }
@@ -271,23 +272,6 @@ control MyIngress(inout headers hdr,
         actions = {
             set_direction;
             NoAction;
-        }
-        size = 1024;
-        default_action = NoAction();
-    }
-
-    // Define a table for firewall (access control list)
-    table ipv4_acl {
-        key = {
-            hdr.ipv4.srcAddr: lpm;
-            hdr.ipv4.dstAddr: lpm;
-            hdr.ipv4.protocol: exact;
-            hdr.tcp.srcPort: exact;
-            hdr.tcp.dstPort: exact;
-        }
-        actions = {
-            drop;  // Drop the packet
-            NoAction;  // Allow the packet (default action)
         }
         size = 1024;
         default_action = NoAction();

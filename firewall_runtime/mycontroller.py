@@ -19,7 +19,7 @@ def writeForwardingRule(p4info_helper, sw, dst_ip_addr,
                          dst_eth_addr, port):
     """
     :param p4info_helper: the P4Info helper
-    :param sw: the switch connection
+    :param sw: switch name
     :param dst_ip_addr: the destination IP to match
     :param dst_eth_addr: the destination Ethernet address to write in the packet
     :param port: the port to forward the packet out of 
@@ -94,57 +94,23 @@ def writeAllForwardingRules(p4info_helper, sw_list):
     writeForwardingRule(p4info_helper, sw=s4, dst_ip_addr="10.0.4.4",
                              dst_eth_addr="08:00:00:00:02:00", port = 1)
 
-
-def writeFirewallRule(p4info_helper, sw, src_ip_addr, dst_ip_addr, 
-                      protocol, src_port, dst_port, action):
+def writeFirewallRule(p4info_helper, sw, dst_ip_addr):
     """
-    Add a firewall rule to block or allow traffic.
     :param p4info_helper: the P4Info helper
-    :param sw: the switch connection
-    :param src_ip_addr: source IP address (use '' for wildcard)
-    :param dst_ip_addr: destination IP address (use '' for wildcard)
-    :param protocol: IP protocol (6 for TCP, 17 for UDP, etc.)
-    :param src_port: source TCP/UDP port (use 0 for wildcard)
-    :param dst_port: destination TCP/UDP port (use 0 for wildcard)
-    :param action: either 'allow' or 'deny'
+    :param sw: switch name
+    :param dst_ip_addr: the destination IP to match
     """
-    # Define action based on the provided parameter
-    if action == "deny":
-        action_name = "drop"
-        action_params = {}  # No parameters needed for drop
-    else:
-        action_name = "NoAction"  # Allow by default
+    prefix_length = 32
 
-    # Build table entry
     table_entry = p4info_helper.buildTableEntry(
-        table_name="MyIngress.ipv4_acl",
+        table_name="MyIngress.ipv4_lpm",
         match_fields={
-            "hdr.ipv4.srcAddr": (src_ip_addr, 32) if src_ip_addr else None,
-            "hdr.ipv4.dstAddr": (dst_ip_addr, 32) if dst_ip_addr else None,
-            "hdr.ipv4.protocol": protocol,
-            "hdr.tcp.srcPort": src_port if src_port else None,
-            "hdr.tcp.dstPort": dst_port if dst_port else None,
+            "hdr.ipv4.dstAddr": (dst_ip_addr, prefix_length)
         },
-        action_name=action_name,
-        action_params=action_params
-    )
+        action_name="MyIngress.drop")
 
     sw.WriteTableEntry(table_entry)
-    print(f"Firewall rule {'denied' if action == 'deny' else 'allowed'} traffic from {src_ip_addr} to {dst_ip_addr} on {sw.name}")
-
-
-def addFirewallRules(p4info_helper, sw_list):
-    s1 = sw_list[0]  # s1 is the first switch
-
-    # Block traffic from 10.0.1.2 to 10.0.2.2 on TCP port 80
-    writeFirewallRule(p4info_helper, s1, src_ip_addr="10.0.3.3", dst_ip_addr="10.0.2.2", 
-                      protocol=6, src_port=0, dst_port=80, action="deny")
-
-    # Allow all other traffic
-    writeFirewallRule(p4info_helper, s1, src_ip_addr="", dst_ip_addr="", 
-                      protocol=0, src_port=0, dst_port=0, action="allow")
-
-
+    print("Installed firewall rule to %s on %s" % (dst_ip_addr, sw.name))
 
 
 def printGrpcError(e):
@@ -166,24 +132,24 @@ def main(p4info_file_path, bmv2_file_path):
             name='s1',
             address='127.0.0.1:50051',
             device_id=0,
-            proto_dump_file='logs/s1-p4runtime-requests.txt')
+            proto_dump_file='logs/s1-p4runtime-requests-controller.txt')
         s2 = p4runtime_lib.bmv2.Bmv2SwitchConnection(
             name='s2',
             address='127.0.0.1:50052',
             device_id=1,
-            proto_dump_file='logs/s2-p4runtime-requests.txt')
+            proto_dump_file='logs/s2-p4runtime-requests-controller.txt')
 
         s3 = p4runtime_lib.bmv2.Bmv2SwitchConnection(
             name='s3',
             address='127.0.0.1:50053',
             device_id=2,
-            proto_dump_file='logs/s3-p4runtime-requests.txt')
+            proto_dump_file='logs/s3-p4runtime-requests-controller.txt')
 
         s4 = p4runtime_lib.bmv2.Bmv2SwitchConnection(
             name='s4',
             address='127.0.0.1:50054',
             device_id=3,
-            proto_dump_file='logs/s4-p4runtime-requests.txt')
+            proto_dump_file='logs/s4-p4runtime-requests-controller.txt')
         
         # Send master arbitration update message to establish this controller as
         # master (required by P4Runtime before performing any other write operation)
@@ -211,8 +177,8 @@ def main(p4info_file_path, bmv2_file_path):
         # Write forwarding rules
         writeAllForwardingRules(p4info_helper, sw_list);  
 
-        # Add firewall rules to s1
-        addFirewallRules(p4info_helper, sw_list)
+        # # Add firewall rules to s1
+        # addFirewallRules(p4info_helper, sw_list)
 
 
     except KeyboardInterrupt:
