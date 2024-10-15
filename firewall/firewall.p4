@@ -6,15 +6,12 @@
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
-
 const bit<8>  TYPE_ICMP = 1;  // Added constant for ICMP protocol
-const bit<32> DOS_THRESHOLD = 10; 
-// Maximum allowed packets from a single IP can be fixed!
+
+const bit<32> DOS_THRESHOLD = 5;  // Maximum allowed packets from a single IP can be fixed!
 
 #define BLOOM_FILTER_ENTRIES 4096
 #define BLOOM_FILTER_BIT_WIDTH 1
-
-
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -23,7 +20,6 @@ const bit<32> DOS_THRESHOLD = 10;
 typedef bit<9>  egressSpec_t;
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
-
 
 header ethernet_t {
     macAddr_t dstAddr;
@@ -102,6 +98,7 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol){
             TYPE_TCP: tcp;
+            TYPE_ICMP: accept;  // ICMP packets don't need further parsing
             default: accept;
         }
     }
@@ -135,9 +132,12 @@ control MyIngress(inout headers hdr,
     // Register to track the number of packets per source IP
     register<bit<32>>(BLOOM_FILTER_ENTRIES) packet_count_register;
 
+    //register counters for drop and forward
     register<bit<32>>(1) drop_count_register;
     register<bit<32>>(1) forward_count_register;
 
+    //last reset time register
+    register<bit<48>>(1) last_reset_time;
 
     bit<32> reg_pos_one; bit<32> reg_pos_two;
     bit<1> reg_val_one; bit<1> reg_val_two;
@@ -181,23 +181,48 @@ control MyIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    //Dos check actioN!
-    action check_dos(out bit<1> exceed_threshold, ip4Addr_t srcAddr) {
+    action reset_packet_count_register(ip4Addr_t srcAddr, ip4Addr_t dstAddr)
+    {
+        bit<32> pos_1;
+        bit<32> pos_2;
+
+        hash(pos_1, HashAlgorithm.crc16, (bit<32>)0, {srcAddr}, (bit<32>)BLOOM_FILTER_ENTRIES);
+        hash(pos_2, HashAlgorithm.crc16, (bit<32>)0, {dstAddr}, (bit<32>)BLOOM_FILTER_ENTRIES);
+
+        packet_count_register.write(pos_1, 0);
+        packet_count_register.write(pos_2, 0);
+    }
+
+    //Dos check action
+    action check_dos(out bit<1> exceed_threshold, ip4Addr_t srcAddr, ip4Addr_t dstAddr) {
         bit<32> packet_count;
+        bit<48> current_time;
+        bit<48> last_reset;
         
         // Compute hash position in the register for the source IP
         bit<32> reg_pos;
         hash(reg_pos, HashAlgorithm.crc16, (bit<32>)0, {srcAddr}, (bit<32>)BLOOM_FILTER_ENTRIES);
         
         // Read the packet count from the register
-        packet_count_register.read(packet_count, reg_pos);
-        
+        packet_count_register.read(packet_count, reg_pos);        
+
         // Increment the packet count
         packet_count = packet_count + 1;
-        
+
         // Write the updated packet count back to the register
         packet_count_register.write(reg_pos, packet_count);
+
+        // Get the current timestamp in useconds/nanoseconds
+        current_time = standard_metadata.ingress_global_timestamp;
+        last_reset_time.read(last_reset, 0);
         
+        if (current_time - last_reset >= 5000000) {
+            packet_count = 0;
+            last_reset = current_time;
+            //reset_packet_count_register(srcAddr, dstAddr);
+        }
+        last_reset_time.write(0, last_reset);
+       
         // Drop packet if the threshold is exceeded
         if (packet_count > DOS_THRESHOLD) {
             exceed_threshold = 1;
@@ -239,32 +264,36 @@ control MyIngress(inout headers hdr,
     apply {
         bit<1> exceed_threshold;
 
-
         if (hdr.ipv4.isValid()) {
-            check_dos(exceed_threshold, hdr.ipv4.srcAddr);
-
-            //If DoS threshold is exceeded, drop the packet
-            if (exceed_threshold == 1) {
-                drop();
-            }
             ipv4_lpm.apply();
-            if (hdr.tcp.isValid()) {
-                direction = 0; // default
-                if (check_ports.apply().hit) {
-                    if (direction == 0) {
-                        compute_hashes(hdr.ipv4.srcAddr, hdr.ipv4.dstAddr, hdr.tcp.srcPort, hdr.tcp.dstPort);
-                    } else {
-                        compute_hashes(hdr.ipv4.dstAddr, hdr.ipv4.srcAddr, hdr.tcp.dstPort, hdr.tcp.srcPort);
-                    }
+            
+            if (hdr.ipv4.protocol == TYPE_ICMP) {
 
-                    // Packet comes from external network
-                    if (direction == 1) {
-                        bloom_filter_1.read(reg_val_one, reg_pos_one);
-                        bloom_filter_2.read(reg_val_two, reg_pos_two);
+                check_dos(exceed_threshold, hdr.ipv4.srcAddr, hdr.ipv4.dstAddr);
+                //If DoS threshold is exceeded, drop the packet
+                if (exceed_threshold == 1) {
+                    drop();
+                }
+            }
+            else {
+                if (hdr.tcp.isValid()) {
+                    direction = 0; // default
+                    if (check_ports.apply().hit) {
+                        if (direction == 0) {
+                            compute_hashes(hdr.ipv4.srcAddr, hdr.ipv4.dstAddr, hdr.tcp.srcPort, hdr.tcp.dstPort);
+                        } else {
+                            compute_hashes(hdr.ipv4.dstAddr, hdr.ipv4.srcAddr, hdr.tcp.dstPort, hdr.tcp.srcPort);
+                        }
 
-                        // If the entries are not set in the bloom filter, drop the packet
-                        if (reg_val_one != 1 || reg_val_two != 1) {
-                            drop();  // Move the drop call here directly
+                        // Packet comes from external network
+                        if (direction == 1) {
+                            bloom_filter_1.read(reg_val_one, reg_pos_one);
+                            bloom_filter_2.read(reg_val_two, reg_pos_two);
+
+                            // If the entries are not set in the bloom filter, drop the packet
+                            if (reg_val_one != 1 || reg_val_two != 1) {
+                                drop();  // Move the drop call here directly
+                            }
                         }
                     }
                 }
