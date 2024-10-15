@@ -8,7 +8,7 @@ const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
 const bit<8>  TYPE_ICMP = 1;  // Added constant for ICMP protocol
 
-const bit<32> DOS_THRESHOLD = 5;  // Maximum allowed packets from a single IP can be fixed!
+const bit<32> DOS_THRESHOLD = 10;  // Maximum allowed packets from a single IP can be fixed!
 
 #define BLOOM_FILTER_ENTRIES 4096
 #define BLOOM_FILTER_BIT_WIDTH 1
@@ -181,7 +181,7 @@ control MyIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    action reset_packet_count_register(ip4Addr_t srcAddr, ip4Addr_t dstAddr)
+    action set_packet_count_register(ip4Addr_t srcAddr, ip4Addr_t dstAddr, bit<32> packet_count) 
     {
         bit<32> pos_1;
         bit<32> pos_2;
@@ -189,8 +189,8 @@ control MyIngress(inout headers hdr,
         hash(pos_1, HashAlgorithm.crc16, (bit<32>)0, {srcAddr}, (bit<32>)BLOOM_FILTER_ENTRIES);
         hash(pos_2, HashAlgorithm.crc16, (bit<32>)0, {dstAddr}, (bit<32>)BLOOM_FILTER_ENTRIES);
 
-        packet_count_register.write(pos_1, 0);
-        packet_count_register.write(pos_2, 0);
+        packet_count_register.write(pos_1, packet_count);
+        packet_count_register.write(pos_2, packet_count);
     }
 
     //Dos check action
@@ -210,19 +210,19 @@ control MyIngress(inout headers hdr,
         packet_count = packet_count + 1;
 
         // Write the updated packet count back to the register
-        packet_count_register.write(reg_pos, packet_count);
+        //packet_count_register.write(reg_pos, packet_count);
 
         // Get the current timestamp in useconds/nanoseconds
         current_time = standard_metadata.ingress_global_timestamp;
         last_reset_time.read(last_reset, 0);
         
-        if (current_time - last_reset >= 5000000) {
+        if (current_time - last_reset >= 10000000) {
             packet_count = 0;
             last_reset = current_time;
-            //reset_packet_count_register(srcAddr, dstAddr);
         }
         last_reset_time.write(0, last_reset);
-       
+        set_packet_count_register(srcAddr, dstAddr, packet_count);
+
         // Drop packet if the threshold is exceeded
         if (packet_count > DOS_THRESHOLD) {
             exceed_threshold = 1;
