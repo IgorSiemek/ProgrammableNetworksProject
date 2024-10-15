@@ -6,7 +6,8 @@
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
-const bit<8>  TYPE_ICMP = 1;  // Added constant for ICMP protocol
+const bit<8>  TYPE_ICMP = 1;
+const bit<8>  TYPE_UDP = 17;
 
 const bit<32> DOS_THRESHOLD = 10;  // Maximum allowed packets from a single IP can be fixed!
 
@@ -62,6 +63,13 @@ header tcp_t{
     bit<16> urgentPtr;
 }
 
+header udp_t {
+    bit<16> srcPort;
+    bit<16> dstPort;
+    bit<16> length;
+    bit<16> checksum;
+}
+
 struct metadata {
     /* empty */
 }
@@ -70,6 +78,7 @@ struct headers {
     ethernet_t   ethernet;
     ipv4_t       ipv4;
     tcp_t        tcp;
+    udp_t        udp;
 }
 
 
@@ -99,6 +108,7 @@ parser MyParser(packet_in packet,
         transition select(hdr.ipv4.protocol){
             TYPE_TCP: tcp;
             TYPE_ICMP: accept;  // ICMP packets don't need further parsing
+            TYPE_UDP: udp;
             default: accept;
         }
     }
@@ -106,6 +116,11 @@ parser MyParser(packet_in packet,
     state tcp {
        packet.extract(hdr.tcp);
        transition accept;
+    }
+
+    state udp {
+        packet.extract(hdr.udp);
+        transition accept;
     }
 }
 
@@ -275,6 +290,13 @@ control MyIngress(inout headers hdr,
                     drop();
                 }
             }
+            // Check if the protocol is UDP and comes from host 10.0.4.4 in hex 32w0x0A000404
+            else if (hdr.ipv4.protocol == TYPE_UDP && hdr.ipv4.srcAddr == 32w0x0A000404) {
+                if (hdr.udp.isValid()) {
+                    log_msg("Drop UDP packet");
+                    drop();
+                }
+            }
             else {
                 if (hdr.tcp.isValid()) {
                     direction = 0; // default
@@ -347,6 +369,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);
         packet.emit(hdr.tcp);
+        packet.emit(hdr.udp);
     }
 }
 
