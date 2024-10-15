@@ -291,11 +291,9 @@ control MyIngress(inout headers hdr,
                 }
             }
             // Check if the protocol is UDP and comes from host 10.0.4.4 in hex 32w0x0A000404
-            else if (hdr.ipv4.protocol == TYPE_UDP && hdr.ipv4.srcAddr == 32w0x0A000404) {
-                if (hdr.udp.isValid()) {
-                    log_msg("Drop UDP packet");
-                    drop();
-                }
+            else if (hdr.udp.isValid() && hdr.ipv4.srcAddr == 32w0x0A000404) {
+                log_msg("Drop UDP packet from specific source");
+                drop();
             }
             else {
                 if (hdr.tcp.isValid()) {
