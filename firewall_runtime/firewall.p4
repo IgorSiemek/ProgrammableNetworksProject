@@ -246,6 +246,21 @@ control MyIngress(inout headers hdr,
         }
     }
 
+    table firewall_table {
+        key = {
+            hdr.ipv4.srcAddr: exact;
+            hdr.ipv4.dstAddr: exact;
+            hdr.udp.dstPort: exact;
+        }
+        actions = {
+            ipv4_forward;
+            drop;
+            NoAction;
+        }
+        size = 1024;
+        default_action = NoAction;
+    }
+
     table ipv4_lpm {
         key = {
             hdr.ipv4.dstAddr: lpm;
@@ -281,8 +296,10 @@ control MyIngress(inout headers hdr,
         bit<1> exceed_threshold;
 
         if (hdr.ipv4.isValid()) {
+           
             ipv4_lpm.apply();
-
+            firewall_table.apply();
+            
             if (hdr.ipv4.protocol == TYPE_ICMP) {
 
                 check_dos(exceed_threshold, hdr.ipv4.srcAddr, hdr.ipv4.dstAddr);
@@ -328,8 +345,6 @@ control MyIngress(inout headers hdr,
             }
         }
     }
-
-
 }
 
 /*************************************************************************

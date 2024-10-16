@@ -94,7 +94,7 @@ def writeAllForwardingRules(p4info_helper, sw_list):
     writeForwardingRule(p4info_helper, sw=s4, dst_ip_addr="10.0.4.4",
                              dst_eth_addr="08:00:00:00:02:00", port = 1)
 
-def writeFirewallRule(p4info_helper, sw, dst_ip_addr):
+def writeFirewallRule(p4info_helper, sw, src_ip_addr, dst_ip_addr, dst_udp_port):
     """
     :param p4info_helper: the P4Info helper
     :param sw: switch name
@@ -103,14 +103,16 @@ def writeFirewallRule(p4info_helper, sw, dst_ip_addr):
     prefix_length = 32
 
     table_entry = p4info_helper.buildTableEntry(
-        table_name="MyIngress.ipv4_lpm",
+        table_name="MyIngress.firewall_table",
         match_fields={
-            "hdr.ipv4.dstAddr": (dst_ip_addr, prefix_length)
+            "hdr.ipv4.srcAddr": (src_ip_addr),
+            "hdr.ipv4.dstAddr": (dst_ip_addr),
+            "hdr.udp.dstPort": (dst_udp_port)
         },
         action_name="MyIngress.drop")
 
     sw.WriteTableEntry(table_entry)
-    print("Installed firewall rule to %s on %s" % (dst_ip_addr, sw.name))
+    print("Installed firewall rule to src_ip_addr: %s, dst_ip_addr %s, dst_udp_port %s on %s" % (src_ip_addr, dst_ip_addr, dst_udp_port, sw.name))
 
 
 def printGrpcError(e):
@@ -177,8 +179,8 @@ def main(p4info_file_path, bmv2_file_path):
         # Write forwarding rules
         writeAllForwardingRules(p4info_helper, sw_list);  
 
-        # # Add firewall rules to s1
-        # addFirewallRules(p4info_helper, sw_list)
+        # Add firewall rules to s1
+        writeFirewallRule(p4info_helper, s1, '10.0.3.3', '10.0.2.2', 50)
 
 
     except KeyboardInterrupt:
