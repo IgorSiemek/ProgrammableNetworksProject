@@ -282,7 +282,7 @@ control MyIngress(inout headers hdr,
 
         if (hdr.ipv4.isValid()) {
             ipv4_lpm.apply();
-            
+
             if (hdr.ipv4.protocol == TYPE_ICMP) {
 
                 check_dos(exceed_threshold, hdr.ipv4.srcAddr, hdr.ipv4.dstAddr);
@@ -292,7 +292,7 @@ control MyIngress(inout headers hdr,
                 }
             }
             // Check if the protocol is UDP and comes from host 10.0.4.4 in hex 32w0x0A000404
-            else if (hdr.udp.isValid() && hdr.ipv4.srcAddr == 32w0x0A000404) {
+            else if (hdr.udp.isValid() && hdr.ipv4.srcAddr == 32w0x0A000404 && hdr.udp.dstPort == 53) {
                 log_msg("Drop UDP packet from specific source");
                 drop();
             }
@@ -305,7 +305,14 @@ control MyIngress(inout headers hdr,
                         } else {
                             compute_hashes(hdr.ipv4.dstAddr, hdr.ipv4.srcAddr, hdr.tcp.dstPort, hdr.tcp.srcPort);
                         }
-
+                        // Packet comes from internal network
+                        if (direction == 0) {
+                            // If there is a syn we update the bloom filter and add the entry
+                            if (hdr.tcp.syn == 1) {
+                                bloom_filter_1.write(reg_pos_one, 1);
+                                bloom_filter_2.write(reg_pos_two, 1);
+                            }
+                        }
                         // Packet comes from external network
                         if (direction == 1) {
                             bloom_filter_1.read(reg_val_one, reg_pos_one);
