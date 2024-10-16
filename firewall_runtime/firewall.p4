@@ -296,12 +296,9 @@ control MyIngress(inout headers hdr,
         bit<1> exceed_threshold;
 
         if (hdr.ipv4.isValid()) {
-           
             ipv4_lpm.apply();
-            firewall_table.apply();
             
             if (hdr.ipv4.protocol == TYPE_ICMP) {
-
                 check_dos(exceed_threshold, hdr.ipv4.srcAddr, hdr.ipv4.dstAddr);
                 //If DoS threshold is exceeded, drop the packet
                 if (exceed_threshold == 1) {
@@ -309,9 +306,13 @@ control MyIngress(inout headers hdr,
                 }
             }
             // Check if the protocol is UDP and comes from host 10.0.4.4 in hex 32w0x0A000404
-            else if (hdr.udp.isValid() && hdr.ipv4.srcAddr == 32w0x0A000404 && hdr.udp.dstPort == 53) {
-                log_msg("Drop UDP packet from specific source");
-                drop();
+            else if (hdr.udp.isValid()) {
+                if(hdr.ipv4.srcAddr == 32w0x0A000404 && hdr.udp.dstPort == 53) 
+                {
+                    log_msg("Drop UDP packet from specific source");
+                    drop();
+                }
+                firewall_table.apply();
             }
             else {
                 if (hdr.tcp.isValid()) {
